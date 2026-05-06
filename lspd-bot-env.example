@@ -1,0 +1,33 @@
+# ══════════════════════════════════════════════════════
+#  LSPD BOT — Variables d'environnement
+#  Copiez ce fichier en .env et remplissez les valeurs
+# ══════════════════════════════════════════════════════
+
+# Token du bot Discord
+# Récupérer sur : discord.com/developers/applications → Votre app → Bot → Token
+BOT_TOKEN=VOTRE_BOT_TOKEN_ICI
+
+# ID de votre serveur Discord
+# Clic droit sur le serveur → Copier l'identifiant (mode développeur activé)
+GUILD_ID=VOTRE_GUILD_ID_ICI
+
+# ID de la catégorie Discord pour les candidatures
+# Clic droit sur la catégorie → Copier l'identifiant
+CATEGORY_CANDIDATURES=ID_CATEGORIE_CANDIDATURES
+
+# ID de la catégorie Discord pour les demandes de port d'armes
+CATEGORY_PORT_ARMES=ID_CATEGORIE_PORT_ARMES
+
+# ID du rôle RH (pingé pour les candidatures)
+# Clic droit sur le rôle dans les paramètres → Copier l'identifiant
+ROLE_RH_ID=ID_ROLE_RH
+
+# ID du rôle qui gère les permis (pingé pour les demandes d'armes)
+ROLE_ARMES_ID=ID_ROLE_ARMES
+
+# Clé secrète pour sécuriser l'API (inventez une longue chaîne aléatoire)
+# Exemple : openssl rand -hex 32
+API_SECRET=INVENTEZ_UNE_CLE_SECRETE_LONGUE_ICI
+
+# Port (Railway le définit automatiquement, ne pas changer)
+PORT=3000
