@@ -22,7 +22,7 @@ const API_SECRET             = process.env.API_SECRET;              // Clé secr
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildChannels,
+    GatewayIntentBits.GuildMembers,
     GatewayIntentBits.GuildMessages,
   ]
 });
