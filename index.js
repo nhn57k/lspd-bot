@@ -49,21 +49,36 @@ function checkSecret(req, res, next) {
 }
 
 // ── Helper : retrouver un membre par son pseudo Discord ──
-// Cherche d'abord par username exact, puis par displayName
 async function findMemberByUsername(guild, discordInput) {
-  // Nettoyer l'input (enlever @ si présent)
   const clean = discordInput.replace(/^@/, '').trim().toLowerCase();
 
-  // Forcer le fetch de tous les membres (nécessite GuildMembers intent)
-  await guild.members.fetch();
+  // Fetch ciblé via l'API Discord (plus fiable)
+  try {
+    const members = await guild.members.fetch({ query: clean, limit: 5 });
+    const member = members.find(m =>
+      m.user.username.toLowerCase() === clean ||
+      m.displayName.toLowerCase() === clean ||
+      m.user.globalName?.toLowerCase() === clean
+    );
+    if (member) return member;
+  } catch (e) {
+    console.warn('⚠️ Fetch par query échoué :', e.message);
+  }
 
-  const member = guild.members.cache.find(m =>
-    m.user.username.toLowerCase() === clean ||
-    m.displayName.toLowerCase() === clean ||
-    m.user.globalName?.toLowerCase() === clean
-  );
-
-  return member || null;
+  // Fallback : fetch complet
+  try {
+    await guild.members.fetch();
+    console.log('🔍 Recherche membre pour :', clean);
+    console.log('👥 Membres en cache :', guild.members.cache.map(m => m.user.username).join(', '));
+    return guild.members.cache.find(m =>
+      m.user.username.toLowerCase() === clean ||
+      m.displayName.toLowerCase() === clean ||
+      m.user.globalName?.toLowerCase() === clean
+    ) || null;
+  } catch (e) {
+    console.warn('⚠️ Fetch complet échoué :', e.message);
+    return null;
+  }
 }
 
 // ── Helper : construire les permissionOverwrites ─────────
