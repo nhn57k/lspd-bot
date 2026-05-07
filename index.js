@@ -11,12 +11,12 @@ require('dotenv').config();
 // ── Config ──────────────────────────────────────────────
 const BOT_TOKEN              = process.env.BOT_TOKEN;
 const GUILD_ID               = process.env.GUILD_ID;
-const CATEGORY_CANDIDATURES  = process.env.CATEGORY_CANDIDATURES;  // ID catégorie candidatures
-const CATEGORY_PORT_ARMES    = process.env.CATEGORY_PORT_ARMES;     // ID catégorie port d'armes
-const ROLE_RH_ID             = process.env.ROLE_RH_ID;              // ID rôle RH à pinger
-const ROLE_ARMES_ID          = process.env.ROLE_ARMES_ID;           // ID rôle qui gère les permits
+const CATEGORY_CANDIDATURES  = process.env.CATEGORY_CANDIDATURES;
+const CATEGORY_PORT_ARMES    = process.env.CATEGORY_PORT_ARMES;
+const ROLE_RH_ID             = process.env.ROLE_RH_ID;
+const ROLE_ARMES_ID          = process.env.ROLE_ARMES_ID;
 const PORT                   = process.env.PORT || 3000;
-const API_SECRET             = process.env.API_SECRET;              // Clé secrète pour sécuriser l'API
+const API_SECRET             = process.env.API_SECRET;
 
 // ── Discord Client ───────────────────────────────────────
 const client = new Client({
@@ -36,17 +36,69 @@ client.once('ready', () => {
 const app = express();
 app.use(express.json());
 app.use(cors({
-  origin: '*', // Remplacez par l'URL de votre site en production
+  origin: '*',
   methods: ['POST'],
 }));
 
-// Middleware de vérification du secret
 function checkSecret(req, res, next) {
   const secret = req.headers['x-api-secret'];
   if (API_SECRET && secret !== API_SECRET) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
   next();
+}
+
+// ── Helper : retrouver un membre par son pseudo Discord ──
+// Cherche d'abord par username exact, puis par displayName
+async function findMemberByUsername(guild, discordInput) {
+  // Nettoyer l'input (enlever @ si présent)
+  const clean = discordInput.replace(/^@/, '').trim().toLowerCase();
+
+  // Forcer le fetch de tous les membres (nécessite GuildMembers intent)
+  await guild.members.fetch();
+
+  const member = guild.members.cache.find(m =>
+    m.user.username.toLowerCase() === clean ||
+    m.displayName.toLowerCase() === clean ||
+    m.user.globalName?.toLowerCase() === clean
+  );
+
+  return member || null;
+}
+
+// ── Helper : construire les permissionOverwrites ─────────
+function buildOverwrites(guild, roleId, member) {
+  const overwrites = [
+    {
+      id: guild.roles.everyone,
+      deny: [PermissionsBitField.Flags.ViewChannel],
+    },
+  ];
+
+  if (roleId) {
+    overwrites.push({
+      id: roleId,
+      allow: [
+        PermissionsBitField.Flags.ViewChannel,
+        PermissionsBitField.Flags.SendMessages,
+        PermissionsBitField.Flags.ReadMessageHistory,
+      ],
+    });
+  }
+
+  // ✅ FIX : ajouter le membre qui a soumis le formulaire
+  if (member) {
+    overwrites.push({
+      id: member.id,
+      allow: [
+        PermissionsBitField.Flags.ViewChannel,
+        PermissionsBitField.Flags.SendMessages,
+        PermissionsBitField.Flags.ReadMessageHistory,
+      ],
+    });
+  }
+
+  return overwrites;
 }
 
 // ─────────────────────────────────────────────────────────
@@ -63,7 +115,12 @@ app.post('/candidature', checkSecret, async (req, res) => {
 
     const guild = await client.guilds.fetch(GUILD_ID);
 
-    // Créer un nom de salon propre : candidature-john-mitchell
+    // Chercher le membre Discord
+    const member = await findMemberByUsername(guild, discord);
+    if (!member) {
+      console.warn(`⚠️ Membre introuvable sur le serveur : ${discord}`);
+    }
+
     const safeName = name
       .toLowerCase()
       .replace(/[^a-z0-9\s-]/g, '')
@@ -71,50 +128,35 @@ app.post('/candidature', checkSecret, async (req, res) => {
       .slice(0, 40);
     const channelName = `📋-${safeName}`;
 
-    // Créer le salon dans la catégorie candidatures
     const channel = await guild.channels.create({
       name: channelName,
       type: ChannelType.GuildText,
       parent: CATEGORY_CANDIDATURES || null,
       topic: `Dossier ${dossier} — Candidature de ${name}`,
-      permissionOverwrites: [
-        {
-          id: guild.roles.everyone,
-          deny: [PermissionsBitField.Flags.ViewChannel],
-        },
-        ...(ROLE_RH_ID ? [{
-          id: ROLE_RH_ID,
-          allow: [
-            PermissionsBitField.Flags.ViewChannel,
-            PermissionsBitField.Flags.SendMessages,
-            PermissionsBitField.Flags.ReadMessageHistory,
-          ],
-        }] : []),
-      ],
+      permissionOverwrites: buildOverwrites(guild, ROLE_RH_ID, member),
     });
 
-    // Embed principal
     const embed = new EmbedBuilder()
       .setTitle('🚔 Nouvelle Candidature LSPD')
       .setColor(0xC8A84B)
       .setThumbnail('https://upload.skybot.fr/uploads/sky_69fadf3a06f892.72502106.webp')
       .addFields(
-        { name: '👤 Nom RP',       value: name,                         inline: true },
-        { name: '🎮 Discord',      value: discord,                      inline: true },
-        { name: '🖥️ FiveM',        value: fivem,                        inline: true },
-        { name: '🎂 Âge',          value: String(age),                  inline: true },
+        { name: '👤 Nom RP',       value: name,                          inline: true },
+        { name: '🎮 Discord',      value: discord,                       inline: true },
+        { name: '🖥️ FiveM',        value: fivem,                         inline: true },
+        { name: '🎂 Âge',          value: String(age),                   inline: true },
         { name: '📋 Expérience',   value: experience || 'Non renseignée', inline: true },
-        { name: '📄 N° Dossier',   value: `\`${dossier}\``,             inline: true },
+        { name: '📄 N° Dossier',   value: `\`${dossier}\``,              inline: true },
         { name: '💬 Motivation',   value: motivation.slice(0, 1024) },
       )
       .setFooter({ text: `LSPD Recrutement · ${new Date().toLocaleString('fr-FR')}` })
       .setTimestamp();
 
-    // Message dans le salon
     const pingMsg = ROLE_RH_ID ? `<@&${ROLE_RH_ID}>` : '📋 Nouveau dossier à traiter';
-    await channel.send({ content: pingMsg, embeds: [embed] });
+    // Mentionner le candidat s'il a été trouvé
+    const candidatMention = member ? ` · Candidat : <@${member.id}>` : ` · Candidat : ${discord}`;
+    await channel.send({ content: pingMsg + candidatMention, embeds: [embed] });
 
-    // Message d'instructions pour les RH
     await channel.send({
       content: [
         '**━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━**',
@@ -127,8 +169,8 @@ app.post('/candidature', checkSecret, async (req, res) => {
       ].join('\n')
     });
 
-    console.log(`✅ Salon candidature créé : ${channelName} (${channel.id})`);
-    res.json({ success: true, channel: channelName, channelId: channel.id });
+    console.log(`✅ Salon candidature créé : ${channelName} (${channel.id}) — Membre trouvé : ${member ? member.user.tag : 'non'}`);
+    res.json({ success: true, channel: channelName, channelId: channel.id, memberFound: !!member });
 
   } catch (err) {
     console.error('❌ Erreur /candidature :', err);
@@ -150,6 +192,12 @@ app.post('/permit', checkSecret, async (req, res) => {
 
     const guild = await client.guilds.fetch(GUILD_ID);
 
+    // Chercher le membre Discord
+    const member = await findMemberByUsername(guild, discord);
+    if (!member) {
+      console.warn(`⚠️ Membre introuvable sur le serveur : ${discord}`);
+    }
+
     const safeName = name
       .toLowerCase()
       .replace(/[^a-z0-9\s-]/g, '')
@@ -162,20 +210,7 @@ app.post('/permit', checkSecret, async (req, res) => {
       type: ChannelType.GuildText,
       parent: CATEGORY_PORT_ARMES || null,
       topic: `Réf. ${ref} — Demande de port d'armes de ${name}`,
-      permissionOverwrites: [
-        {
-          id: guild.roles.everyone,
-          deny: [PermissionsBitField.Flags.ViewChannel],
-        },
-        ...(ROLE_ARMES_ID ? [{
-          id: ROLE_ARMES_ID,
-          allow: [
-            PermissionsBitField.Flags.ViewChannel,
-            PermissionsBitField.Flags.SendMessages,
-            PermissionsBitField.Flags.ReadMessageHistory,
-          ],
-        }] : []),
-      ],
+      permissionOverwrites: buildOverwrites(guild, ROLE_ARMES_ID, member),
     });
 
     const embed = new EmbedBuilder()
@@ -183,18 +218,19 @@ app.post('/permit', checkSecret, async (req, res) => {
       .setColor(0xDC2626)
       .setThumbnail('https://upload.skybot.fr/uploads/sky_69fadf3a06f892.72502106.webp')
       .addFields(
-        { name: '👤 Nom RP',         value: name,             inline: true },
-        { name: '🎮 Discord',        value: discord,          inline: true },
-        { name: "🔫 Type d'arme",    value: arme,             inline: true },
-        { name: '📋 Motif',          value: motif,            inline: true },
-        { name: '📄 Réf. demande',   value: `\`${ref}\``,     inline: true },
+        { name: '👤 Nom RP',         value: name,                        inline: true },
+        { name: '🎮 Discord',        value: discord,                     inline: true },
+        { name: "🔫 Type d'arme",    value: arme,                        inline: true },
+        { name: '📋 Motif',          value: motif,                       inline: true },
+        { name: '📄 Réf. demande',   value: `\`${ref}\``,                inline: true },
         { name: '💬 Justification',  value: justification.slice(0, 1024) },
       )
       .setFooter({ text: `LSPD Port d'Armes · ${new Date().toLocaleString('fr-FR')}` })
       .setTimestamp();
 
     const pingMsg = ROLE_ARMES_ID ? `<@&${ROLE_ARMES_ID}>` : '🔫 Nouvelle demande de permis';
-    await channel.send({ content: pingMsg, embeds: [embed] });
+    const demandeurMention = member ? ` · Demandeur : <@${member.id}>` : ` · Demandeur : ${discord}`;
+    await channel.send({ content: pingMsg + demandeurMention, embeds: [embed] });
 
     await channel.send({
       content: [
@@ -207,8 +243,8 @@ app.post('/permit', checkSecret, async (req, res) => {
       ].join('\n')
     });
 
-    console.log(`✅ Salon permit créé : ${channelName} (${channel.id})`);
-    res.json({ success: true, channel: channelName, channelId: channel.id });
+    console.log(`✅ Salon permit créé : ${channelName} (${channel.id}) — Membre trouvé : ${member ? member.user.tag : 'non'}`);
+    res.json({ success: true, channel: channelName, channelId: channel.id, memberFound: !!member });
 
   } catch (err) {
     console.error('❌ Erreur /permit :', err);
@@ -216,7 +252,7 @@ app.post('/permit', checkSecret, async (req, res) => {
   }
 });
 
-// ── Health check pour Railway ────────────────────────────
+// ── Health check ─────────────────────────────────────────
 app.get('/', (req, res) => res.json({ status: 'LSPD Bot online ✅' }));
 
 // ── Démarrage ────────────────────────────────────────────
